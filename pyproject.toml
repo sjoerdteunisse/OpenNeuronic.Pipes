@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openneuronic-pipes"
+version = "0.1.0"
+description = "Python-first, horizontally scalable data movement and transformation platform"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+postgres  = ["asyncpg>=0.29"]
+sqlserver = ["aioodbc>=0.5"]
+redis     = ["redis[asyncio]>=5.0"]
+broker    = ["aio-pika>=9.0", "aiokafka>=0.10"]
+metrics   = ["prometheus-client>=0.20"]
+cli       = ["typer>=0.12"]
+deploy    = ["pyyaml>=6.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+]
+all = [
+    "openneuronic-pipes[postgres,sqlserver,redis,broker,metrics,cli,deploy]",
+]
+
+[project.scripts]
+onpipes = "openneuronic.pipes.cli.__main__:app"
+
+[tool.setuptools.packages.find]
+where      = ["src"]
+namespaces = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths    = ["tests"]
+log_cli       = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s %(levelname)-8s %(name)s  %(message)s"
+markers      = [
+    "integration: tests that require a live database (deselect with -m 'not integration')",
+]
