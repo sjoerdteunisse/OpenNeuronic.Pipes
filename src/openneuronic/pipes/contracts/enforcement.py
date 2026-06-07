@@ -79,6 +79,21 @@ class ContractEnforcer:
                         message=f"Required field {rf!r} not found in schema",
                     ))
 
+        # Verify that all required guard suites are registered.
+        if contract.required_guard_suites:
+            from openneuronic.pipes.guards.suite import guard_suite_registry
+            for suite_name in contract.required_guard_suites:
+                try:
+                    guard_suite_registry.get(suite_name)
+                except KeyError:
+                    result.violations.append(ContractViolation(
+                        stage=EnforcementStage.DEPLOY,
+                        message=(
+                            f"Required guard suite {suite_name!r} is not registered. "
+                            "Register it with guard_suite_registry.register() before deployment."
+                        ),
+                    ))
+
         return result
 
     def enforce_run_start(
@@ -142,10 +157,22 @@ class ContractEnforcer:
         contract: type[Contract],
         records_written: int,
         records_expected: int | None = None,
+        run_finished_at: Any | None = None,
+        last_successful_run_at: Any | None = None,
     ) -> EnforcementResult:
-        """Check quality guarantees at publication time."""
+        """Check quality and freshness guarantees at publication time.
+
+        Args:
+            contract: The contract to enforce.
+            records_written: Number of records actually written.
+            records_expected: Optional expected count for deviation check.
+            run_finished_at: Datetime when the run completed (for freshness SLA).
+            last_successful_run_at: Datetime of the last successful run
+                (for freshness SLA — the *gap* between runs is checked).
+        """
         result = self._result(EnforcementStage.PUBLISH, contract)
 
+        # Row-count deviation check.
         if (
             contract.max_row_count_deviation_pct is not None
             and records_expected is not None
@@ -162,6 +189,26 @@ class ContractEnforcer:
                     ),
                 ))
 
+        # Freshness SLA check — gap between last successful run and now.
+        if (
+            contract.freshness_sla is not None
+            and run_finished_at is not None
+            and last_successful_run_at is not None
+        ):
+            import datetime
+            sla_seconds = _parse_sla(contract.freshness_sla)
+            if sla_seconds is not None:
+                gap: datetime.timedelta = run_finished_at - last_successful_run_at
+                if gap.total_seconds() > sla_seconds:
+                    result.violations.append(ContractViolation(
+                        stage=EnforcementStage.PUBLISH,
+                        message=(
+                            f"Freshness SLA {contract.freshness_sla!r} exceeded: "
+                            f"last successful run was {gap} ago "
+                            f"(allowed {datetime.timedelta(seconds=sla_seconds)})"
+                        ),
+                    ))
+
         return result
 
     @staticmethod
@@ -171,6 +218,27 @@ class ContractEnforcer:
             contract_name=contract.__name__,
             contract_version=contract.__contract_version__,
         )
+
+
+def _parse_sla(sla: str | None) -> float | None:
+    """Parse a freshness SLA string like ``"30m"``, ``"1h"``, ``"2d"`` into seconds.
+
+    Returns ``None`` if *sla* is ``None`` or the string is not recognised.
+    """
+    if sla is None:
+        return None
+    sla = sla.strip().lower()
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    for suffix, mult in multipliers.items():
+        if sla.endswith(suffix):
+            try:
+                return float(sla[:-1]) * mult
+            except ValueError:
+                return None
+    try:
+        return float(sla)  # bare number → seconds
+    except ValueError:
+        return None
 
 
 contract_enforcer = ContractEnforcer()

@@ -27,5 +27,12 @@ class ContractRegistry:
     def all_versions(self, name: str) -> list[int]:
         return sorted(v for (n, v) in self._store if n == name)
 
+    def get_latest(self, name: str) -> type[Contract]:
+        """Return the highest-version contract registered under *name*."""
+        versions = self.all_versions(name)
+        if not versions:
+            raise KeyError(f"No contract registered under name {name!r}") from None
+        return self.get(name, versions[-1])
+
 
 contract_registry = ContractRegistry()

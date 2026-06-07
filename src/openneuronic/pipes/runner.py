@@ -114,6 +114,18 @@ class LocalRunner:
             for processor in pipe.processors:
                 await processor.setup()
 
+            # Auto-migrate: create target table from schema DDL if requested.
+            if getattr(pipe.sink, "_auto_migrate", False) and pipe.schema is not None:
+                await pipe.sink.apply_schema(pipe.schema)
+
+            # Full-load: redirect writes to staging table.
+            if pipe.mode == CopyMode.FULL:
+                await pipe.sink.prepare_full_load()
+
+            # Partial-load: delete matching scope rows before writing replacements.
+            if pipe.mode == CopyMode.PARTIAL and pipe.scope is not None:
+                await pipe.sink.delete_scope(pipe.scope)
+
             batch: list[Record] = []
             batch_num = 0
             async for record in pipe.source.read(bookmark):
@@ -147,6 +159,10 @@ class LocalRunner:
                         dropped=len(batch) - written,
                     )
                 logger.batch_written(batch_num, len(batch), written)
+
+            # Full-load: atomically swap staging → live after all batches written.
+            if pipe.mode == CopyMode.FULL:
+                await pipe.sink.commit_full_load()
 
             # Emit write lineage after all batches succeed.
             tracker.track_write(

@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from openneuronic.pipes.core.enums import GraphFailureMode, SegmentStatus
+from openneuronic.pipes.core.enums import GraphFailureMode, SegmentStatus, WaitStrategy
 from openneuronic.pipes.opus.durability import filter_pending_segments
 from openneuronic.pipes.opus.opus import Opus
 from openneuronic.pipes.opus.retry import RetryPolicy, run_with_retry
@@ -102,25 +102,61 @@ class OpusRunner:
 
         waves = opus.topological_waves()
 
+        # Track which segments have completed (success or failure) across waves
+        # so we can evaluate ANY/MAJORITY wait strategies.
+        completed_ids: set[str] = set()
+
         try:
             for wave in waves:
                 # Filter to only segments that are still pending in this wave.
                 to_run = [s for s in wave if s.id in pending_ids]
                 if not to_run:
+                    # All skipped — mark their deps as satisfied anyway.
+                    completed_ids.update(s.id for s in wave)
                     continue
 
-                # Run all segments in this wave concurrently.
+                # Segments in this wave whose wait_strategy requires early-start
+                # handling: ALL (default) just runs the whole wave; ANY/MAJORITY
+                # launch downstream dependents as soon as the threshold is met.
+                # For simplicity we run the whole wave concurrently (futures) and
+                # then check the threshold before proceeding to the next wave.
                 tasks = [
-                    self._run_segment(seg, store, opus_result)
+                    asyncio.create_task(self._run_segment(seg, store, opus_result))
                     for seg in to_run
                 ]
-                await asyncio.gather(*tasks, return_exceptions=False)
+
+                if any(s.wait_strategy in (WaitStrategy.ANY, WaitStrategy.MAJORITY) for s in to_run):
+                    # Wait until the threshold is reached, then cancel remaining.
+                    n = len(tasks)
+                    threshold = 1 if any(s.wait_strategy == WaitStrategy.ANY for s in to_run) else (n // 2 + 1)
+                    done_count = 0
+                    for coro in asyncio.as_completed(tasks):
+                        await coro
+                        done_count += 1
+                        if done_count >= threshold:
+                            # Cancel still-running tasks; they will eventually
+                            # complete or be resumed in a future run.
+                            for t in tasks:
+                                if not t.done():
+                                    t.cancel()
+                            break
+                    # Await cancelled tasks to avoid warnings.
+                    for t in tasks:
+                        try:
+                            await t
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                else:
+                    await asyncio.gather(*tasks, return_exceptions=False)
+
+                completed_ids.update(s.id for s in to_run)
 
                 # Check failure policy after each wave.
                 failed = [
                     sid
                     for sid in (s.id for s in to_run)
-                    if not opus_result.segment_results.get(sid, SegmentRunResult(sid)).success
+                    if sid in opus_result.segment_results
+                    and not opus_result.segment_results[sid].success
                 ]
                 if failed:
                     if opus.on_failure == GraphFailureMode.FAIL_FAST:

@@ -1,8 +1,9 @@
 """Opus — a composed, durable orchestration of one or more PipeSegments."""
 from __future__ import annotations
 
+import dataclasses
 from collections import defaultdict
-from typing import Any
+from typing import Any, Callable
 
 from openneuronic.pipes.core.enums import GraphFailureMode, WaitStrategy
 from openneuronic.pipes.opus.segment import PipeSegment
@@ -64,6 +65,59 @@ class Opus:
                 raise ValueError(f"Segment id {seg.id!r} already registered in opus {self.id!r}")
             self._segments[seg.id] = seg
         self._validate_dag()
+
+    def add_dynamic_segments(
+        self,
+        segment_factory: Callable[[Any], PipeSegment],
+        keys: list[Any],
+        depends_on: list[str] | None = None,
+        *,
+        id_prefix: str = "dynamic",
+    ) -> list[PipeSegment]:
+        """Generate one :class:`PipeSegment` per entry in *keys* at runtime.
+
+        This supports dynamic fan-out — for example, one segment per tenant,
+        date partition, or record ID discovered from an upstream run result.
+
+        Args:
+            segment_factory: A callable ``(key) -> PipeSegment`` that receives
+                each key and returns a configured :class:`PipeSegment`.  The
+                factory may ignore the ``id`` it sets; a unique id is enforced
+                via ``{id_prefix}:{key}``.
+            keys: The fan-out values — one segment is created per key.
+            depends_on: Optional list of upstream segment IDs all generated
+                segments should depend on.
+            id_prefix: Prefix used to build unique segment IDs when the factory
+                does not already produce unique ones.
+
+        Returns:
+            The list of generated :class:`PipeSegment` instances added to this opus.
+
+        Example::
+
+            tenants = ["acme", "globex", "initech"]
+            opus.add_dynamic_segments(
+                segment_factory=lambda tenant: PipeSegment(
+                    id=f"load-{tenant}",
+                    pipe=build_pipe(tenant),
+                ),
+                keys=tenants,
+                depends_on=["extract"],
+            )
+        """
+        generated: list[PipeSegment] = []
+        for key in keys:
+            seg = segment_factory(key)
+            # Ensure unique id by prefixing.
+            unique_id = f"{id_prefix}:{key}" if not seg.id.startswith(id_prefix) else seg.id
+            seg = dataclasses.replace(
+                seg,
+                id=unique_id,
+                depends_on=list(depends_on or []) + [d for d in seg.depends_on if d not in (depends_on or [])],
+            )
+            generated.append(seg)
+        self.add_segments(generated)
+        return generated
 
     # ------------------------------------------------------------------
     # DAG validation
