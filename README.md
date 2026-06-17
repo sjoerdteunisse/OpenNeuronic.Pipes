@@ -23,6 +23,7 @@ A Python-first, horizontally scalable, containerised data movement and transform
 13. [Opus Orchestration](#opus-orchestration)
 14. [Deployment](#deployment)
 15. [CLI Reference](#cli-reference)
+16. [REST API Server](#rest-api-server)
 
 ---
 
@@ -34,7 +35,8 @@ pip install "openneuronic-pipes[postgres]" # + asyncpg
 pip install "openneuronic-pipes[sqlserver]"# + aioodbc
 pip install "openneuronic-pipes[redis]"    # + redis[asyncio]
 pip install "openneuronic-pipes[deploy]"   # + pyyaml
-pip install "openneuronic-pipes[dev]"      # all dev extras (typer, pyyaml, pytest…)
+pip install "openneuronic-pipes[api]"      # + flask (REST API server)
+pip install "openneuronic-pipes[dev]"      # all dev extras (typer, pyyaml, flask, pytest…)
 pip install "openneuronic-pipes[all]"      # everything
 ```
 
@@ -924,10 +926,182 @@ onpipes lineage show --pipe orders-sync
 
 ---
 
+## REST API Server
+
+The optional `[api]` extra ships a local Flask-based REST API that exposes every Pipes primitive — pipes, opus orchestrations, run history, replay points, lineage, and a write-only in-memory secrets store — over HTTP.
+
+> **Local use only.** The server runs Flask's built-in development server on a single process. For high-availability or Kubernetes deployments wrap it behind a proper WSGI/ASGI server and an orchestrator.
+
+### Installation
+
+```bash
+pip install "openneuronic-pipes[api]"
+```
+
+### Starting the server
+
+**Option A — programmatic (embed in your own script)**
+
+```python
+from openneuronic.pipes.api import create_app, Registry
+from openneuronic.pipes.sources.sqlserver import SQLServerSource
+from openneuronic.pipes.sinks.sqlserver import SQLServerSink
+from openneuronic.pipes import Pipe, CopyMode
+
+reg = Registry()
+reg.pipes.register(Pipe(
+    id="orders-sync",
+    source=SQLServerSource(connection="...", query="SELECT * FROM orders"),
+    sink=SQLServerSink(connection="...", target_table="orders", upsert_key="id"),
+    mode=CopyMode.INCREMENTAL,
+))
+
+app = create_app(reg)
+app.run(host="127.0.0.1", port=5000, debug=True)
+```
+
+**Option B — CLI entry point**
+
+```bash
+# Minimal (empty registry, use the API to create pipes at runtime)
+ONPIPES_API_KEY=my-local-secret uv run onpipes-api
+
+# Auto-load pipes from a Python module
+# The module must expose a `registry` attribute or a `get_registry()` callable.
+ONPIPES_MODULE=myapp.pipes ONPIPES_API_KEY=my-local-secret uv run onpipes-api
+
+# All options
+ONPIPES_MODULE=myapp.pipes \
+ONPIPES_HOST=127.0.0.1 \
+ONPIPES_PORT=5000 \
+ONPIPES_DEBUG=1 \
+ONPIPES_API_KEY=my-local-secret \
+uv run onpipes-api
+```
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `ONPIPES_API_KEY` | *(unset)* | Enables secrets management and pipe creation. Required for all `POST /pipes/` and `/secrets` endpoints. |
+| `ONPIPES_MODULE` | *(unset)* | Python import path of a module that exposes `registry` or `get_registry()` |
+| `ONPIPES_HOST` | `127.0.0.1` | Bind address |
+| `ONPIPES_PORT` | `5000` | Listen port |
+| `ONPIPES_DEBUG` | `0` | Set to `1` for Flask debug mode |
+
+### API reference
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/health` | — | Liveness check |
+| `GET` | `/version` | — | Package version |
+| `GET` | `/pipes/` | — | List registered pipes |
+| `POST` | `/pipes/` | key | Create a pipe from JSON spec |
+| `GET` | `/pipes/{id}` | — | Pipe detail |
+| `DELETE` | `/pipes/{id}` | key | Deregister a pipe |
+| `POST` | `/pipes/{id}/run` | — | Execute a pipe (optional bookmark body) |
+| `GET` | `/pipes/{id}/bookmark` | — | Current bookmark |
+| `DELETE` | `/pipes/{id}/bookmark` | — | Reset bookmark |
+| `GET` | `/opus/` | — | List registered opuses |
+| `GET` | `/opus/{id}` | — | Opus detail with segment DAG |
+| `POST` | `/opus/{id}/run` | — | Execute an opus |
+| `GET` | `/runs/` | — | Run history (last 200) |
+| `GET` | `/runs/{run_id}` | — | Specific run result |
+| `GET` | `/replay/points` | — | List replay points |
+| `GET` | `/replay/points/{id}` | — | Get replay point |
+| `POST` | `/replay/run` | — | Execute a replay |
+| `GET` | `/lineage/` | — | Full knowledge graph |
+| `GET` | `/lineage/pipes/{id}` | — | Pipe-scoped subgraph |
+| `GET` | `/secrets/` | key | List secret key names (never values) |
+| `PUT` | `/secrets/{key}` | key | Store or overwrite a secret |
+| `DELETE` | `/secrets/{key}` | key | Delete a secret |
+
+**Auth** = `X-API-Key: <ONPIPES_API_KEY>` header required.
+
+### Secrets store
+
+Connection strings and other sensitive values are stored in an in-memory write-only secrets store. Values are **never** returned by any API endpoint — only key names are enumerable.
+
+Secret references in pipe specs use the `{"$secret": "key_name"}` syntax:
+
+```bash
+# 1. Store connection strings
+curl -X PUT http://127.0.0.1:5000/secrets/src_conn \
+  -H "X-API-Key: my-local-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "DRIVER={ODBC Driver 17 for SQL Server};Server=tcp:127.0.0.1,1433;Database=source_db;UID=sa;PWD=pass;TrustServerCertificate=yes"}'
+
+curl -X PUT http://127.0.0.1:5000/secrets/dst_conn \
+  -H "X-API-Key: my-local-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "DRIVER={ODBC Driver 17 for SQL Server};Server=tcp:127.0.0.1,1433;Database=dest_db;UID=sa;PWD=pass;TrustServerCertificate=yes"}'
+
+# 2. Create a pipe that resolves them at build time
+curl -X POST http://127.0.0.1:5000/pipes/ \
+  -H "X-API-Key: my-local-secret" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id":   "orders-sync",
+    "mode": "incremental",
+    "source": {
+      "type":       "sqlserver",
+      "connection": {"$secret": "src_conn"},
+      "query":      "SELECT id, name, updated_at FROM dbo.Orders WHERE updated_at > ?"
+    },
+    "sink": {
+      "type":         "sqlserver",
+      "connection":   {"$secret": "dst_conn"},
+      "target_table": "Orders",
+      "upsert_key":   "id"
+    }
+  }'
+
+# 3. Run the pipe (no key required)
+curl -X POST http://127.0.0.1:5000/pipes/orders-sync/run
+```
+
+Secret key naming rules: 1–128 characters, `[a-zA-Z0-9_-]` only.
+
+### Dynamic pipe creation spec
+
+```python
+{
+    "id":   "<unique pipe id>",        # required
+    "mode": "incremental",             # full | partial | incremental
+    "source": {
+        "type":       "sqlserver",     # sqlserver | postgres | memory
+        "connection": {"$secret": "src_conn"},   # or plain string
+        "query":      "SELECT ..."
+    },
+    "sink": {
+        "type":         "sqlserver",
+        "connection":   {"$secret": "dst_conn"},
+        "target_table": "target",
+        "upsert_key":   "id",          # optional
+        "auto_migrate": false          # optional
+    }
+}
+```
+
+Use `"type": "memory"` with `"payloads": [...]` for a lightweight smoke-test pipe that requires no real database.
+
+### Postman collection
+
+A ready-to-import Postman collection and environment file are in the [postman/](postman/) directory:
+
+```
+postman/
+    OpenNeuronic.Pipes.postman_collection.json   # all endpoints, example bodies
+    OpenNeuronic.Pipes.postman_environment.json  # base_url, api_key variables
+```
+
+Import both files into Postman, select the **OpenNeuronic.Pipes — Local** environment, set `api_key` to your `ONPIPES_API_KEY` value, and all requests are ready to use.
+
+---
+
 ## Further Reading
 
 - [Integration Tests](tests/integration/) — end-to-end SQL Server examples
 - [Example Tests](tests/readme_examples/) — unit tests for every code example in this README
+- [API Tests](tests/api/) — Flask test-client tests for every REST endpoint
 
 ---
 

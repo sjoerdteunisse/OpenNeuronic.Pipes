@@ -1,0 +1,575 @@
+{
+  "info": {
+    "_postman_id": "onpipes-local-api-v1",
+    "name": "OpenNeuronic.Pipes — Local REST API",
+    "description": "Interact with the openneuronic-pipes Flask API running locally.\n\nSet the `base_url` variable in the bundled environment file (or override it here) before running requests.\n\nDefault: http://127.0.0.1:5000",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:5000",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "change-me",
+      "type": "string"
+    },
+    {
+      "key": "pipe_id",
+      "value": "my-pipe",
+      "type": "string"
+    },
+    {
+      "key": "opus_id",
+      "value": "my-opus",
+      "type": "string"
+    },
+    {
+      "key": "run_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "replay_point_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Returns `{\"status\": \"ok\", \"version\": \"...\"}` when the server is running."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\"status\": \"ok\", \"version\": \"0.1.0\"}"
+            }
+          ]
+        },
+        {
+          "name": "Version",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/version",
+              "host": ["{{base_url}}"],
+              "path": ["version"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pipes",
+      "item": [
+        {
+          "name": "List pipes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/pipes/",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", ""]
+            },
+            "description": "Returns all registered pipes with id, mode, source/sink types."
+          }
+        },
+        {
+          "name": "Get pipe detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/pipes/{{pipe_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", "{{pipe_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Run pipe (no bookmark)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.run_id) { pm.collectionVariables.set('run_id', json.run_id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"batch_size\": 500\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pipes/{{pipe_id}}/run",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", "{{pipe_id}}", "run"]
+            },
+            "description": "Runs the pipe using any persisted bookmark. Saves the `run_id` to the collection variable."
+          }
+        },
+        {
+          "name": "Run pipe (with bookmark)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"batch_size\": 500,\n  \"bookmark\": {\n    \"column\": \"updated_at\",\n    \"type\": \"datetime\",\n    \"value\": \"2024-01-01T00:00:00+00:00\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pipes/{{pipe_id}}/run",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", "{{pipe_id}}", "run"]
+            },
+            "description": "Runs the pipe starting from the supplied bookmark value."
+          }
+        },
+        {
+          "name": "Run pipe (with timeout)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"batch_size\": 500,\n  \"timeout_s\": 120\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pipes/{{pipe_id}}/run",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", "{{pipe_id}}", "run"]
+            }
+          }
+        },
+        {
+          "name": "Get bookmark",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/pipes/{{pipe_id}}/bookmark",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", "{{pipe_id}}", "bookmark"]
+            },
+            "description": "Returns the current in-memory bookmark for the pipe, or 404 if none exists."
+          }
+        },
+        {
+          "name": "Reset bookmark",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/pipes/{{pipe_id}}/bookmark",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", "{{pipe_id}}", "bookmark"]
+            },
+            "description": "Deletes the current bookmark so the next run starts from scratch. Returns 204 No Content."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Opus",
+      "item": [
+        {
+          "name": "List opuses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/opus/",
+              "host": ["{{base_url}}"],
+              "path": ["opus", ""]
+            }
+          }
+        },
+        {
+          "name": "Get opus detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/opus/{{opus_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["opus", "{{opus_id}}"]
+            },
+            "description": "Returns opus metadata including the full segment DAG."
+          }
+        },
+        {
+          "name": "Run opus",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"batch_size\": 500\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/opus/{{opus_id}}/run",
+              "host": ["{{base_url}}"],
+              "path": ["opus", "{{opus_id}}", "run"]
+            },
+            "description": "Executes the entire opus DAG. Returns OpusRunResult with per-segment results."
+          }
+        },
+        {
+          "name": "Run opus (with run_id + timeout)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"run_id\": \"my-deterministic-run-001\",\n  \"batch_size\": 500,\n  \"timeout_s\": 300\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/opus/{{opus_id}}/run",
+              "host": ["{{base_url}}"],
+              "path": ["opus", "{{opus_id}}", "run"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Runs",
+      "item": [
+        {
+          "name": "List recent runs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/",
+              "host": ["{{base_url}}"],
+              "path": ["runs", ""]
+            },
+            "description": "Returns the last 200 run results (pipes + individual opus segments)."
+          }
+        },
+        {
+          "name": "Get run by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/runs/{{run_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["runs", "{{run_id}}"]
+            },
+            "description": "Looks up a specific run result. Populate `run_id` from a previous run response."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Replay",
+      "item": [
+        {
+          "name": "List replay points",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/replay/points",
+              "host": ["{{base_url}}"],
+              "path": ["replay", "points"]
+            },
+            "description": "Lists all stored ReplayPoints, newest-first. Points are captured automatically after each successful run."
+          }
+        },
+        {
+          "name": "Get replay point",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/replay/points/{{replay_point_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["replay", "points", "{{replay_point_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Run replay (dry run)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.run_id) { pm.collectionVariables.set('run_id', json.run_id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pipe_id\": \"{{pipe_id}}\",\n  \"replay_point_id\": \"{{replay_point_id}}\",\n  \"mode\": \"bookmark\",\n  \"sink_strategy\": \"dry_run\",\n  \"reason\": \"Investigating data discrepancy\",\n  \"allow_config_drift\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/replay/run",
+              "host": ["{{base_url}}"],
+              "path": ["replay", "run"]
+            },
+            "description": "Runs the pipeline from a stored replay point using DRY_RUN strategy (no output written)."
+          }
+        },
+        {
+          "name": "Run replay (shadow write)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pipe_id\": \"{{pipe_id}}\",\n  \"replay_point_id\": \"{{replay_point_id}}\",\n  \"mode\": \"bookmark\",\n  \"sink_strategy\": \"shadow_write\",\n  \"allow_config_drift\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/replay/run",
+              "host": ["{{base_url}}"],
+              "path": ["replay", "run"]
+            }
+          }
+        },
+        {
+          "name": "Run replay (window, replace scope)",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pipe_id\": \"{{pipe_id}}\",\n  \"replay_point_id\": \"{{replay_point_id}}\",\n  \"mode\": \"window\",\n  \"scope\": {\n    \"date_column\": \"created_at\",\n    \"date_start\": \"2024-01-01T00:00:00+00:00\",\n    \"date_end\": \"2024-01-31T23:59:59+00:00\"\n  },\n  \"sink_strategy\": \"replace_scope\",\n  \"allow_config_drift\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/replay/run",
+              "host": ["{{base_url}}"],
+              "path": ["replay", "run"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Lineage",
+      "item": [
+        {
+          "name": "Full lineage graph",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/lineage/",
+              "host": ["{{base_url}}"],
+              "path": ["lineage", ""]
+            },
+            "description": "Returns all nodes and edges in the in-memory knowledge graph."
+          }
+        },
+        {
+          "name": "Pipe lineage subgraph",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/lineage/pipes/{{pipe_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["lineage", "pipes", "{{pipe_id}}"]
+            },
+            "description": "Returns the subset of nodes and edges directly connected to the given pipe."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Secrets",
+      "description": "Manage in-memory secrets used by dynamically created pipes.\n\nAll endpoints require the `X-API-Key` header matching `ONPIPES_API_KEY`.\nSecret VALUES are never returned by any endpoint.",
+      "item": [
+        {
+          "name": "List secret keys",
+          "request": {
+            "method": "GET",
+            "header": [{"key": "X-API-Key", "value": "{{api_key}}"}],
+            "url": {
+              "raw": "{{base_url}}/secrets/",
+              "host": ["{{base_url}}"],
+              "path": ["secrets", ""]
+            },
+            "description": "Returns only the key NAMES stored in the secret store — never values."
+          }
+        },
+        {
+          "name": "Set a secret",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {"key": "X-API-Key", "value": "{{api_key}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"DRIVER={ODBC Driver 17 for SQL Server};Server=tcp:127.0.0.1,1433;Database=source_db;UID=sa;PWD=YourPassword;TrustServerCertificate=yes\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/secrets/src_conn",
+              "host": ["{{base_url}}"],
+              "path": ["secrets", "src_conn"]
+            },
+            "description": "Store or overwrite a secret. The value is never echoed back.\n\nKey naming: 1–128 alphanumeric characters, underscores, or hyphens."
+          }
+        },
+        {
+          "name": "Set destination secret",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {"key": "X-API-Key", "value": "{{api_key}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"DRIVER={ODBC Driver 17 for SQL Server};Server=tcp:127.0.0.1,1433;Database=dest_db;UID=sa;PWD=YourPassword;TrustServerCertificate=yes\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/secrets/dst_conn",
+              "host": ["{{base_url}}"],
+              "path": ["secrets", "dst_conn"]
+            }
+          }
+        },
+        {
+          "name": "Delete a secret",
+          "request": {
+            "method": "DELETE",
+            "header": [{"key": "X-API-Key", "value": "{{api_key}}"}],
+            "url": {
+              "raw": "{{base_url}}/secrets/src_conn",
+              "host": ["{{base_url}}"],
+              "path": ["secrets", "src_conn"]
+            },
+            "description": "Removes the secret. No-op if the key does not exist. Returns 204."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pipe Management",
+      "description": "Dynamically create and delete pipes at runtime.\n\nAll mutating endpoints require the `X-API-Key` header.\n\nConnection strings can be supplied inline or as `{\"$secret\": \"key_name\"}` references.",
+      "item": [
+        {
+          "name": "Create pipe (SQLServer → SQLServer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.id) { pm.collectionVariables.set('pipe_id', json.id); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "X-API-Key", "value": "{{api_key}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"orders-sync\",\n  \"mode\": \"incremental\",\n  \"source\": {\n    \"type\": \"sqlserver\",\n    \"connection\": {\"$secret\": \"src_conn\"},\n    \"query\": \"SELECT id, name, updated_at FROM dbo.Orders WHERE updated_at > ?\"\n  },\n  \"sink\": {\n    \"type\": \"sqlserver\",\n    \"connection\": {\"$secret\": \"dst_conn\"},\n    \"target_table\": \"Orders\",\n    \"upsert_key\": \"id\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pipes/",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", ""]
+            },
+            "description": "Register a new pipe from a JSON spec. Connection strings are resolved from the secret store.\n\nThe new pipe id is saved to the `pipe_id` collection variable."
+          }
+        },
+        {
+          "name": "Create pipe (Postgres → Postgres)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "X-API-Key", "value": "{{api_key}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"customers-sync\",\n  \"mode\": \"incremental\",\n  \"source\": {\n    \"type\": \"postgres\",\n    \"connection\": {\"$secret\": \"pg_src\"},\n    \"query\": \"SELECT id, email, updated_at FROM customers WHERE updated_at > $1\"\n  },\n  \"sink\": {\n    \"type\": \"postgres\",\n    \"connection\": {\"$secret\": \"pg_dst\"},\n    \"target_table\": \"customers\",\n    \"upsert_key\": \"id\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pipes/",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", ""]
+            }
+          }
+        },
+        {
+          "name": "Create pipe (memory — no DB needed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "X-API-Key", "value": "{{api_key}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"smoke-test-pipe\",\n  \"mode\": \"full\",\n  \"source\": {\n    \"type\": \"memory\",\n    \"payloads\": [\n      {\"id\": 1, \"name\": \"Alice\"},\n      {\"id\": 2, \"name\": \"Bob\"}\n    ]\n  },\n  \"sink\": {\n    \"type\": \"memory\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pipes/",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", ""]
+            },
+            "description": "Create an in-process pipe with no external dependencies — useful for API smoke tests."
+          }
+        },
+        {
+          "name": "Delete pipe",
+          "request": {
+            "method": "DELETE",
+            "header": [{"key": "X-API-Key", "value": "{{api_key}}"}],
+            "url": {
+              "raw": "{{base_url}}/pipes/{{pipe_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["pipes", "{{pipe_id}}"]
+            },
+            "description": "Deregister a pipe from the runtime registry. Returns 204 No Content."
+          }
+        }
+      ]
+    }
+  ]
+}

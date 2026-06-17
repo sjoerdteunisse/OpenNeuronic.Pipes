@@ -17,19 +17,22 @@ broker    = ["aio-pika>=9.0", "aiokafka>=0.10"]
 metrics   = ["prometheus-client>=0.20"]
 cli       = ["typer>=0.12"]
 deploy    = ["pyyaml>=6.0"]
+api       = ["flask>=3.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
     "pyyaml>=6.0",
     "typer>=0.12",
+    "flask>=3.0",
 ]
 all = [
-    "openneuronic-pipes[postgres,sqlserver,redis,broker,metrics,cli,deploy]",
+    "openneuronic-pipes[postgres,sqlserver,redis,broker,metrics,cli,deploy,api]",
 ]
 
 [project.scripts]
-onpipes = "openneuronic.pipes.cli.__main__:app"
+onpipes     = "openneuronic.pipes.cli.__main__:app"
+onpipes-api = "openneuronic.pipes.api.app:main"
 
 [tool.setuptools.packages.find]
 where      = ["src"]
